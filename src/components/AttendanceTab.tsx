@@ -9,11 +9,8 @@ import {
   AlertCircle,
   BarChart3,
   CalendarCheck,
-  Check,
-  X,
   Clock,
-  ChevronRight,
-  TrendingUp,
+  Layers,
 } from 'lucide-react';
 import { Batch, Student, AttendanceStatus, AttendanceRecord } from '../types';
 import {
@@ -70,11 +67,15 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Monthly & Overall Mode State
+  // Monthly Matrix View State
   const [selectedMonth, setSelectedMonth] = useState<string>(format(new Date(), 'yyyy-MM'));
   const [monthBatchFilter, setMonthBatchFilter] = useState<string>('all');
   const [allAttendance, setAllAttendance] = useState<AttendanceRecord[]>([]);
-  const [loadingStats, setLoadingStats] = useState(false);
+
+  // Overall Stats Sub-view State (supports All-Time or specific Month drill-down)
+  const [statsTimeframe, setStatsTimeframe] = useState<'month' | 'all_time'>('month');
+  const [statsMonth, setStatsMonth] = useState<string>(format(new Date(), 'yyyy-MM'));
+  const [statsBatchFilter, setStatsBatchFilter] = useState<string>('all');
 
   // Set default batch when batches load
   useEffect(() => {
@@ -85,10 +86,8 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
 
   // Load all attendance records for Monthly & Summary views
   const reloadAllAttendance = async () => {
-    setLoadingStats(true);
     const records = await fetchAllAttendance();
     setAllAttendance(records);
-    setLoadingStats(false);
   };
 
   useEffect(() => {
@@ -174,18 +173,15 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
     }
   };
 
-  // --- MONTHLY VIEW CALCULATIONS ---
-  // 1. Filter month attendance records
+  // --- MONTHLY MATRIX CALCULATIONS ---
   const monthRecords = allAttendance.filter((r) => {
     const inMonth = r.attendance_date.startsWith(selectedMonth);
     const inBatch = monthBatchFilter === 'all' || r.batch_id === monthBatchFilter;
     return inMonth && inBatch;
   });
 
-  // 2. Unique conducted dates sorted ascending
   const conductedDates = Array.from(new Set(monthRecords.map((r) => r.attendance_date))).sort();
 
-  // 3. Students applicable for the monthly view
   const monthStudents = students.filter((s) => {
     if (!s.is_active) return false;
     if (monthBatchFilter !== 'all') {
@@ -194,7 +190,6 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
     return true;
   });
 
-  // 4. Calculate monthly summary for each student
   const getStudentMonthlyRecord = (studentId: string) => {
     const studentMonthRecords = monthRecords.filter((r) => r.student_id === studentId);
     const dateStatusMap: Record<string, AttendanceStatus> = {};
@@ -218,9 +213,20 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
     };
   };
 
-  // Overall attendance statistics for student
-  const calculateStudentOverallStats = (studentId: string) => {
-    const studentRecords = allAttendance.filter((r) => r.student_id === studentId);
+  // --- OVERALL / MONTH STATS DRILL-DOWN CALCULATIONS ---
+  const statsStudents = students.filter((s) => {
+    if (!s.is_active) return false;
+    if (statsBatchFilter !== 'all') {
+      return s.batch_id === statsBatchFilter;
+    }
+    return true;
+  });
+
+  const calculateStudentDrilldownStats = (studentId: string) => {
+    let studentRecords = allAttendance.filter((r) => r.student_id === studentId);
+    if (statsTimeframe === 'month') {
+      studentRecords = studentRecords.filter((r) => r.attendance_date.startsWith(statsMonth));
+    }
     if (studentRecords.length === 0) return { total: 0, present: 0, pct: 0 };
     const presentCount = studentRecords.filter((r) => r.status === 'present' || r.status === 'late').length;
     const pct = Math.round((presentCount / studentRecords.length) * 100);
@@ -251,7 +257,7 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
           }`}
         >
           <Calendar className="w-4 h-4" />
-          <span>Monthly View</span>
+          <span>Monthly Matrix</span>
         </button>
         <button
           onClick={() => setSubView('summary')}
@@ -579,45 +585,129 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
       )}
 
       {/* ========================================================= */}
-      {/* VIEW 3: OVERALL ATTENDANCE SUMMARY & PERFORMANCE */}
+      {/* VIEW 3: OVERALL / MONTHLY ATTENDANCE STATS DRILL-DOWN */}
       {/* ========================================================= */}
       {subView === 'summary' && (
         <div className="space-y-4 animate-fade-in">
-          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
-                  <BarChart3 className="w-4 h-4 text-rose-600" />
-                  Overall Student Attendance
-                </h3>
-                <p className="text-xs text-slate-500 font-medium">All-time attendance percentage & class count</p>
+          {/* Controls Bar */}
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 space-y-3">
+            {/* Timeframe selector: By Month vs All Time */}
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                <Clock className="w-4 h-4 text-rose-600" />
+                Time Period
+              </label>
+              <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setStatsTimeframe('month')}
+                  className={`px-3 py-1 rounded-lg transition-all ${
+                    statsTimeframe === 'month'
+                      ? 'bg-rose-700 text-white shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  By Month
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatsTimeframe('all_time')}
+                  className={`px-3 py-1 rounded-lg transition-all ${
+                    statsTimeframe === 'all_time'
+                      ? 'bg-rose-700 text-white shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  All Time
+                </button>
               </div>
             </div>
 
-            <div className="space-y-3 pt-2">
-              {students.length === 0 ? (
-                <p className="text-xs text-slate-400 text-center py-4">No students enrolled.</p>
+            {/* Month Picker (Shown when "By Month" is active) */}
+            {statsTimeframe === 'month' && (
+              <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 animate-fade-in">
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                  <Calendar className="w-4 h-4 text-rose-600" />
+                  Select Month
+                </label>
+                <input
+                  type="month"
+                  value={statsMonth}
+                  onChange={(e) => setStatsMonth(e.target.value)}
+                  className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-sm font-bold text-slate-800 focus:ring-2 focus:ring-rose-500 outline-none"
+                />
+              </div>
+            )}
+
+            {/* Batch Filter */}
+            <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                <Filter className="w-4 h-4 text-rose-600" />
+                Batch Filter
+              </label>
+              <select
+                value={statsBatchFilter}
+                onChange={(e) => setStatsBatchFilter(e.target.value)}
+                className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-rose-500 outline-none max-w-[200px]"
+              >
+                <option value="all">All Batches</option>
+                {batches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Performance Chart Card */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+              <div>
+                <h3 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
+                  <BarChart3 className="w-4 h-4 text-rose-600" />
+                  {statsTimeframe === 'month'
+                    ? `Attendance Rate • ${formatMonthName(statsMonth)}`
+                    : 'Attendance Rate • All Time'}
+                </h3>
+                <p className="text-xs text-slate-500 font-medium">
+                  {statsTimeframe === 'month'
+                    ? `Showing statistics for ${formatMonthName(statsMonth)}`
+                    : 'Showing lifetime attendance statistics'}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3 pt-1">
+              {statsStudents.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-4">No active students in this filter.</p>
               ) : (
-                students.map((student) => {
-                  const stats = calculateStudentOverallStats(student.id);
+                statsStudents.map((student) => {
+                  const stats = calculateStudentDrilldownStats(student.id);
                   return (
                     <div key={student.id} className="space-y-1.5">
                       <div className="flex justify-between text-xs font-semibold text-slate-700">
                         <span className="font-bold text-slate-800">{student.name}</span>
-                        <span className="font-semibold text-slate-600">
-                          <strong className="text-rose-700">{stats.pct}%</strong> ({stats.present}/{stats.total} classes)
-                        </span>
+                        {stats.total === 0 ? (
+                          <span className="text-[11px] text-slate-400 font-medium">No classes recorded</span>
+                        ) : (
+                          <span className="font-semibold text-slate-600">
+                            <strong className="text-rose-700 font-bold">{stats.pct}%</strong> ({stats.present}/{stats.total} classes)
+                          </span>
+                        )}
                       </div>
                       <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
                         <div
                           className={`h-2.5 rounded-full transition-all duration-300 ${
-                            stats.pct >= 85
+                            stats.total === 0
+                              ? 'bg-slate-200'
+                              : stats.pct >= 85
                               ? 'bg-emerald-500'
                               : stats.pct >= 60
                               ? 'bg-amber-500'
                               : 'bg-rose-500'
                           }`}
-                          style={{ width: `${Math.max(stats.pct, 5)}%` }}
+                          style={{ width: `${stats.total === 0 ? 0 : Math.max(stats.pct, 5)}%` }}
                         />
                       </div>
                     </div>
