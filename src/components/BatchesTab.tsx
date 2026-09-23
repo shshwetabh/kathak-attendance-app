@@ -11,14 +11,42 @@ interface BatchesTabProps {
 
 const ALL_WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-const TIME_PRESETS = [
-  '5:00 PM - 6:30 PM',
-  '6:30 PM - 8:00 PM',
-  '4:00 PM - 5:30 PM',
-  '10:00 AM - 11:30 AM',
-  '10:00 AM - 12:00 PM',
-  '7:00 PM - 8:30 PM',
-];
+// Helper to convert 24h string ("17:00") to 12h string ("5:00 PM")
+const format12Hour = (time24: string): string => {
+  if (!time24) return '';
+  const [hStr, mStr] = time24.split(':');
+  let hours = parseInt(hStr, 10);
+  const minutes = mStr || '00';
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  hours = hours ? hours : 12;
+  return `${hours}:${minutes} ${ampm}`;
+};
+
+// Helper to convert 12h string ("5:00 PM") to 24h string ("17:00")
+const convert12To24 = (time12: string): string => {
+  if (!time12) return '17:00';
+  const match = time12.match(/(\d+):(\d+)\s*(AM|PM)/i);
+  if (!match) return '17:00';
+  let hours = parseInt(match[1], 10);
+  const minutes = match[2];
+  const ampm = match[3].toUpperCase();
+  if (ampm === 'PM' && hours < 12) hours += 12;
+  if (ampm === 'AM' && hours === 12) hours = 0;
+  return `${hours.toString().padStart(2, '0')}:${minutes}`;
+};
+
+// Helper to parse timing string ("5:00 PM - 6:30 PM") into start and end 24h times
+const parseTimingString = (timingStr: string): { start: string; end: string } => {
+  if (!timingStr || !timingStr.includes('-')) {
+    return { start: '17:00', end: '18:30' };
+  }
+  const parts = timingStr.split('-').map((p) => p.trim());
+  return {
+    start: convert12To24(parts[0]) || '17:00',
+    end: convert12To24(parts[1]) || '18:30',
+  };
+};
 
 export const BatchesTab: React.FC<BatchesTabProps> = ({ batches, students, onRefresh }) => {
   const [showAddModal, setShowAddModal] = useState(false);
@@ -27,7 +55,8 @@ export const BatchesTab: React.FC<BatchesTabProps> = ({ batches, students, onRef
   // Form State
   const [name, setName] = useState('');
   const [selectedDays, setSelectedDays] = useState<string[]>(['Tue', 'Thu', 'Sat']);
-  const [timing, setTiming] = useState('5:00 PM - 6:30 PM');
+  const [startTime, setStartTime] = useState('17:00');
+  const [endTime, setEndTime] = useState('18:30');
   const [monthlyFee, setMonthlyFee] = useState<number>(2500);
   const [saving, setSaving] = useState(false);
 
@@ -51,13 +80,19 @@ export const BatchesTab: React.FC<BatchesTabProps> = ({ batches, students, onRef
         ? batch.schedule_days.split(',').map((d) => d.trim())
         : ['Tue', 'Thu', 'Sat'];
       setSelectedDays(parsedDays);
-      setTiming(batch.timing);
+
+      // Parse start & end times
+      const { start, end } = parseTimingString(batch.timing);
+      setStartTime(start);
+      setEndTime(end);
+
       setMonthlyFee(batch.monthly_fee);
     } else {
       setEditingBatch(null);
       setName('');
       setSelectedDays(['Tue', 'Thu', 'Sat']);
-      setTiming('5:00 PM - 6:30 PM');
+      setStartTime('17:00');
+      setEndTime('18:30');
       setMonthlyFee(2500);
     }
     setShowAddModal(true);
@@ -67,7 +102,6 @@ export const BatchesTab: React.FC<BatchesTabProps> = ({ batches, students, onRef
     if (selectedDays.includes(day)) {
       setSelectedDays(selectedDays.filter((d) => d !== day));
     } else {
-      // Maintain day order Mon..Sun
       const updated = [...selectedDays, day].sort(
         (a, b) => ALL_WEEKDAYS.indexOf(a) - ALL_WEEKDAYS.indexOf(b)
       );
@@ -80,13 +114,14 @@ export const BatchesTab: React.FC<BatchesTabProps> = ({ batches, students, onRef
     if (!name.trim()) return;
 
     const formattedScheduleDays = selectedDays.length > 0 ? selectedDays.join(', ') : 'Custom';
+    const formattedTiming = `${format12Hour(startTime)} - ${format12Hour(endTime)}`;
 
     setSaving(true);
     await saveBatch({
       id: editingBatch ? editingBatch.id : undefined,
       name: name.trim(),
       schedule_days: formattedScheduleDays,
-      timing: timing.trim(),
+      timing: formattedTiming,
       monthly_fee: Number(monthlyFee),
     });
     setSaving(false);
@@ -282,68 +317,42 @@ export const BatchesTab: React.FC<BatchesTabProps> = ({ batches, students, onRef
                     );
                   })}
                 </div>
-
-                {/* Quick Presets for Days */}
-                <div className="flex items-center gap-2 mt-2 text-[11px] text-slate-500 font-medium overflow-x-auto pb-0.5">
-                  <span className="text-slate-400">Presets:</span>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDays(['Tue', 'Thu', 'Sat'])}
-                    className="hover:text-rose-700 underline underline-offset-2"
-                  >
-                    Tue,Thu,Sat
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDays(['Wed', 'Fri', 'Sun'])}
-                    className="hover:text-rose-700 underline underline-offset-2"
-                  >
-                    Wed,Fri,Sun
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDays(['Sat', 'Sun'])}
-                    className="hover:text-rose-700 underline underline-offset-2"
-                  >
-                    Weekend
-                  </button>
-                </div>
               </div>
 
-              {/* Interactive Time Slot Selector */}
+              {/* Native Time Pickers for Start Time & End Time */}
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1 flex items-center gap-1">
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
                   <Clock className="w-3.5 h-3.5 text-rose-600" />
-                  Class Time Slot
+                  Class Timing (Start & End Time)
                 </label>
 
-                <select
-                  value={TIME_PRESETS.includes(timing) ? timing : 'custom'}
-                  onChange={(e) => {
-                    if (e.target.value !== 'custom') {
-                      setTiming(e.target.value);
-                    }
-                  }}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-800 focus:ring-2 focus:ring-rose-500 outline-none mb-1.5"
-                >
-                  {TIME_PRESETS.map((slot) => (
-                    <option key={slot} value={slot}>
-                      {slot}
-                    </option>
-                  ))}
-                  <option value="custom">Custom Time Slot...</option>
-                </select>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <span className="text-[11px] font-medium text-slate-500 block mb-1">Start Time</span>
+                    <input
+                      type="time"
+                      required
+                      value={startTime}
+                      onChange={(e) => setStartTime(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold text-slate-800 focus:ring-2 focus:ring-rose-500 outline-none"
+                    />
+                  </div>
 
-                {/* Allow typing custom timing if custom chosen */}
-                {(!TIME_PRESETS.includes(timing) || timing === '') && (
-                  <input
-                    type="text"
-                    placeholder="e.g. 5:00 PM - 6:30 PM"
-                    value={timing}
-                    onChange={(e) => setTiming(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-800 focus:ring-2 focus:ring-rose-500 outline-none mt-1"
-                  />
-                )}
+                  <div>
+                    <span className="text-[11px] font-medium text-slate-500 block mb-1">End Time</span>
+                    <input
+                      type="time"
+                      required
+                      value={endTime}
+                      onChange={(e) => setEndTime(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold text-slate-800 focus:ring-2 focus:ring-rose-500 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-slate-500 mt-1 font-medium">
+                  Result: <strong className="text-rose-700">{format12Hour(startTime)} - {format12Hour(endTime)}</strong>
+                </p>
               </div>
 
               <div>
