@@ -10,17 +10,34 @@ export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
 
-// Default 2 Initial Batches: Kids & Adults (with provision to add unlimited additional batches)
+// UUID generator compatible across all browsers
+const generateUUID = (): string => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
+
+const isValidUUID = (str?: string): boolean => {
+  if (!str) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+};
+
+// Default 2 Initial Batches: Kids & Adults
 const SEED_BATCHES: Batch[] = [
   {
-    id: 'batch-1',
+    id: '11111111-1111-4111-a111-111111111111',
     name: 'Kids Batch',
     schedule_days: 'Tue, Thu, Sat',
     timing: '5:00 PM - 6:30 PM',
     monthly_fee: 2500,
   },
   {
-    id: 'batch-2',
+    id: '22222222-2222-4222-a222-222222222222',
     name: 'Adults Batch',
     schedule_days: 'Wed, Fri, Sun',
     timing: '6:30 PM - 8:00 PM',
@@ -28,60 +45,13 @@ const SEED_BATCHES: Batch[] = [
   },
 ];
 
-const SEED_STUDENTS: Student[] = [
-  {
-    id: 'stu-1',
-    name: 'Ananya Sharma',
-    phone: '9876543210',
-    parent_phone: '9876543211',
-    batch_id: 'batch-1', // Kids Batch
-    join_date: '2026-01-15',
-    is_active: true,
-  },
-  {
-    id: 'stu-2',
-    name: 'Riya Verma',
-    phone: '9812345678',
-    parent_phone: '9812345679',
-    batch_id: 'batch-1', // Kids Batch
-    join_date: '2026-02-01',
-    is_active: true,
-  },
-  {
-    id: 'stu-3',
-    name: 'Aarav Gupta',
-    phone: '9822334455',
-    parent_phone: '9822334456',
-    batch_id: 'batch-1', // Kids Batch
-    join_date: '2026-02-10',
-    is_active: true,
-  },
-  {
-    id: 'stu-4',
-    name: 'Pooja Deshmukh',
-    phone: '9988776655',
-    parent_phone: '9988776656',
-    batch_id: 'batch-2', // Adults Batch
-    join_date: '2025-11-10',
-    is_active: true,
-  },
-  {
-    id: 'stu-5',
-    name: 'Saanvi Mehta',
-    phone: '9123456789',
-    parent_phone: '9123456790',
-    batch_id: 'batch-2', // Adults Batch
-    join_date: '2025-08-20',
-    is_active: true,
-  },
-];
-
-// Helper to initialize LocalStorage if empty or reset to fresh structure
+// Helper to initialize LocalStorage if empty
 const initLocalStorage = () => {
-  // Always ensure default batches & students exist for fresh test
-  localStorage.setItem('kathak_batches', JSON.stringify(SEED_BATCHES));
+  if (!localStorage.getItem('kathak_batches')) {
+    localStorage.setItem('kathak_batches', JSON.stringify(SEED_BATCHES));
+  }
   if (!localStorage.getItem('kathak_students')) {
-    localStorage.setItem('kathak_students', JSON.stringify(SEED_STUDENTS));
+    localStorage.setItem('kathak_students', JSON.stringify([]));
   }
   if (!localStorage.getItem('kathak_attendance')) {
     localStorage.setItem('kathak_attendance', JSON.stringify([]));
@@ -96,24 +66,59 @@ initLocalStorage();
 // --- BATCH API ---
 export const fetchBatches = async (): Promise<Batch[]> => {
   if (isSupabaseConfigured && supabase) {
-    const { data, error } = await supabase.from('batches').select('*').order('name');
-    if (!error && data && data.length > 0) return data;
+    try {
+      const { data, error } = await supabase.from('batches').select('*').order('name');
+      if (!error && data && data.length > 0) {
+        localStorage.setItem('kathak_batches', JSON.stringify(data));
+        return data;
+      }
+      if (!error && data && data.length === 0) {
+        // Seed default batches into Supabase if empty
+        await supabase.from('batches').insert(
+          SEED_BATCHES.map((b) => ({
+            name: b.name,
+            schedule_days: b.schedule_days,
+            timing: b.timing,
+            monthly_fee: b.monthly_fee,
+          }))
+        );
+        const { data: seeded } = await supabase.from('batches').select('*').order('name');
+        if (seeded && seeded.length > 0) {
+          localStorage.setItem('kathak_batches', JSON.stringify(seeded));
+          return seeded;
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching batches from Supabase:', err);
+    }
   }
   const local = localStorage.getItem('kathak_batches');
   return local ? JSON.parse(local) : SEED_BATCHES;
 };
 
 export const saveBatch = async (batch: Omit<Batch, 'id'> & { id?: string }): Promise<Batch> => {
-  const newId = batch.id || `batch-${Date.now()}`;
+  const newId = batch.id && isValidUUID(batch.id) ? batch.id : generateUUID();
   const newBatch: Batch = { ...batch, id: newId };
 
   if (isSupabaseConfigured && supabase) {
-    const { data, error } = await supabase.from('batches').upsert([newBatch]).select().single();
-    if (!error && data) return data;
+    try {
+      const payload = isValidUUID(batch.id)
+        ? { id: batch.id, name: batch.name, schedule_days: batch.schedule_days, timing: batch.timing, monthly_fee: batch.monthly_fee }
+        : { name: batch.name, schedule_days: batch.schedule_days, timing: batch.timing, monthly_fee: batch.monthly_fee };
+
+      const { data, error } = await supabase.from('batches').upsert([payload]).select().single();
+      if (error) {
+        console.error('Error saving batch to Supabase:', error);
+      } else if (data) {
+        newBatch.id = data.id;
+      }
+    } catch (err) {
+      console.error('Supabase batch save exception:', err);
+    }
   }
 
   const local = await fetchBatches();
-  const existingIndex = local.findIndex((b) => b.id === newId);
+  const existingIndex = local.findIndex((b) => b.id === newBatch.id || b.name.toLowerCase() === newBatch.name.toLowerCase());
   if (existingIndex >= 0) {
     local[existingIndex] = newBatch;
   } else {
@@ -126,24 +131,57 @@ export const saveBatch = async (batch: Omit<Batch, 'id'> & { id?: string }): Pro
 // --- STUDENT API ---
 export const fetchStudents = async (): Promise<Student[]> => {
   if (isSupabaseConfigured && supabase) {
-    const { data, error } = await supabase.from('students').select('*').order('name');
-    if (!error && data) return data;
+    try {
+      const { data, error } = await supabase.from('students').select('*').order('name');
+      if (!error && data) {
+        localStorage.setItem('kathak_students', JSON.stringify(data));
+        return data;
+      }
+      if (error) {
+        console.error('Error fetching students from Supabase:', error);
+      }
+    } catch (err) {
+      console.error('Supabase fetchStudents exception:', err);
+    }
   }
   const local = localStorage.getItem('kathak_students');
-  return local ? JSON.parse(local) : SEED_STUDENTS;
+  return local ? JSON.parse(local) : [];
 };
 
 export const saveStudent = async (student: Omit<Student, 'id'> & { id?: string }): Promise<Student> => {
-  const newId = student.id || `stu-${Date.now()}`;
+  const newId = student.id && isValidUUID(student.id) ? student.id : generateUUID();
   const newStudent: Student = { ...student, id: newId };
 
   if (isSupabaseConfigured && supabase) {
-    const { data, error } = await supabase.from('students').upsert([newStudent]).select().single();
-    if (!error && data) return data;
+    try {
+      const payload: any = {
+        name: student.name,
+        phone: student.phone || null,
+        parent_phone: student.parent_phone || null,
+        batch_id: isValidUUID(student.batch_id) ? student.batch_id : null,
+        join_date: student.join_date,
+        is_active: student.is_active ?? true,
+        notes: student.notes || null,
+      };
+
+      if (isValidUUID(student.id)) {
+        payload.id = student.id;
+      }
+
+      const { data, error } = await supabase.from('students').upsert([payload]).select().single();
+      if (error) {
+        console.error('Error saving student to Supabase:', error);
+      } else if (data) {
+        newStudent.id = data.id;
+      }
+    } catch (err) {
+      console.error('Supabase student save exception:', err);
+    }
   }
 
+  // Update local storage backup
   const local = await fetchStudents();
-  const existingIndex = local.findIndex((s) => s.id === newId);
+  const existingIndex = local.findIndex((s) => s.id === newStudent.id);
   if (existingIndex >= 0) {
     local[existingIndex] = newStudent;
   } else {
@@ -159,23 +197,36 @@ export const fetchAttendanceByDateAndBatch = async (
   batchId: string
 ): Promise<AttendanceRecord[]> => {
   if (isSupabaseConfigured && supabase) {
-    const { data, error } = await supabase
-      .from('attendance')
-      .select('*')
-      .eq('attendance_date', dateStr)
-      .eq('batch_id', batchId);
-    if (!error && data) return data;
+    try {
+      const query = supabase
+        .from('attendance')
+        .select('*')
+        .eq('attendance_date', dateStr);
+
+      if (isValidUUID(batchId)) {
+        query.eq('batch_id', batchId);
+      }
+
+      const { data, error } = await query;
+      if (!error && data) return data;
+    } catch (err) {
+      console.error('Supabase attendance fetch exception:', err);
+    }
   }
 
   const local = localStorage.getItem('kathak_attendance');
   const records: AttendanceRecord[] = local ? JSON.parse(local) : [];
-  return records.filter((r) => r.attendance_date === dateStr && r.batch_id === batchId);
+  return records.filter((r) => r.attendance_date === dateStr && (!batchId || r.batch_id === batchId));
 };
 
 export const fetchAllAttendance = async (): Promise<AttendanceRecord[]> => {
   if (isSupabaseConfigured && supabase) {
-    const { data, error } = await supabase.from('attendance').select('*');
-    if (!error && data) return data;
+    try {
+      const { data, error } = await supabase.from('attendance').select('*');
+      if (!error && data) return data;
+    } catch (err) {
+      console.error('Supabase fetchAllAttendance error:', err);
+    }
   }
   const local = localStorage.getItem('kathak_attendance');
   return local ? JSON.parse(local) : [];
@@ -183,12 +234,25 @@ export const fetchAllAttendance = async (): Promise<AttendanceRecord[]> => {
 
 export const saveAttendanceRecords = async (records: Omit<AttendanceRecord, 'id'>[]): Promise<void> => {
   if (isSupabaseConfigured && supabase) {
-    const prepared = records.map((r) => ({
-      ...r,
-      id: `${r.attendance_date}_${r.student_id}`,
-    }));
-    await supabase.from('attendance').upsert(prepared, { onConflict: 'attendance_date,student_id' });
-    return;
+    try {
+      const prepared = records.map((r) => ({
+        attendance_date: r.attendance_date,
+        batch_id: isValidUUID(r.batch_id) ? r.batch_id : null,
+        student_id: r.student_id,
+        status: r.status,
+        notes: r.notes || null,
+      }));
+
+      const { error } = await supabase
+        .from('attendance')
+        .upsert(prepared, { onConflict: 'attendance_date,student_id' });
+
+      if (error) {
+        console.error('Error saving attendance to Supabase:', error);
+      }
+    } catch (err) {
+      console.error('Supabase attendance save exception:', err);
+    }
   }
 
   const local = localStorage.getItem('kathak_attendance');
@@ -210,8 +274,15 @@ export const saveAttendanceRecords = async (records: Omit<AttendanceRecord, 'id'
 // --- PAYMENTS API ---
 export const fetchPaymentsByMonth = async (monthYear: string): Promise<PaymentRecord[]> => {
   if (isSupabaseConfigured && supabase) {
-    const { data, error } = await supabase.from('payments').select('*').eq('month_year', monthYear);
-    if (!error && data) return data;
+    try {
+      const { data, error } = await supabase.from('payments').select('*').eq('month_year', monthYear);
+      if (!error && data) return data;
+      if (error) {
+        console.error('Error fetching payments from Supabase:', error);
+      }
+    } catch (err) {
+      console.error('Supabase fetchPayments error:', err);
+    }
   }
   const local = localStorage.getItem('kathak_payments');
   const records: PaymentRecord[] = local ? JSON.parse(local) : [];
@@ -220,20 +291,52 @@ export const fetchPaymentsByMonth = async (monthYear: string): Promise<PaymentRe
 
 export const fetchAllPayments = async (): Promise<PaymentRecord[]> => {
   if (isSupabaseConfigured && supabase) {
-    const { data, error } = await supabase.from('payments').select('*');
-    if (!error && data) return data;
+    try {
+      const { data, error } = await supabase.from('payments').select('*');
+      if (!error && data) return data;
+    } catch (err) {
+      console.error('Supabase fetchAllPayments error:', err);
+    }
   }
   const local = localStorage.getItem('kathak_payments');
   return local ? JSON.parse(local) : [];
 };
 
 export const savePaymentRecord = async (payment: Omit<PaymentRecord, 'id'> & { id?: string }): Promise<PaymentRecord> => {
-  const newId = payment.id || `pay_${payment.student_id}_${payment.month_year}`;
+  const newId = payment.id && isValidUUID(payment.id) ? payment.id : generateUUID();
   const record: PaymentRecord = { ...payment, id: newId };
 
   if (isSupabaseConfigured && supabase) {
-    const { data, error } = await supabase.from('payments').upsert([record]).select().single();
-    if (!error && data) return data;
+    try {
+      const payload: any = {
+        student_id: payment.student_id,
+        month_year: payment.month_year,
+        amount_due: payment.amount_due,
+        amount_paid: payment.amount_paid,
+        status: payment.status,
+        payment_date: payment.payment_date || null,
+        payment_mode: payment.payment_mode || 'UPI',
+        notes: payment.notes || null,
+      };
+
+      if (isValidUUID(payment.id)) {
+        payload.id = payment.id;
+      }
+
+      const { data, error } = await supabase
+        .from('payments')
+        .upsert([payload], { onConflict: 'student_id,month_year' })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error saving payment to Supabase:', error);
+      } else if (data) {
+        record.id = data.id;
+      }
+    } catch (err) {
+      console.error('Supabase payment save exception:', err);
+    }
   }
 
   const local = localStorage.getItem('kathak_payments');

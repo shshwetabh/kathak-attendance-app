@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Plus, UserPlus, Phone, Calendar, Edit2, X, Check } from 'lucide-react';
+import { Search, Plus, UserPlus, Phone, Calendar, Edit2, X, Check, CheckCircle2 } from 'lucide-react';
 import { Batch, Student } from '../types';
 import { saveStudent } from '../lib/supabase';
 
@@ -14,6 +14,7 @@ export const StudentsTab: React.FC<StudentsTabProps> = ({ batches, students, onR
   const [selectedBatchFilter, setSelectedBatchFilter] = useState('all');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [successMsg, setSuccessMsg] = useState('');
 
   // Form State
   const [name, setName] = useState('');
@@ -30,7 +31,7 @@ export const StudentsTab: React.FC<StudentsTabProps> = ({ batches, students, onR
       setName(student.name);
       setPhone(student.phone || '');
       setParentPhone(student.parent_phone || '');
-      setBatchId(student.batch_id);
+      setBatchId(student.batch_id || (batches[0]?.id || ''));
       setJoinDate(student.join_date);
       setNotes(student.notes || '');
     } else {
@@ -47,7 +48,9 @@ export const StudentsTab: React.FC<StudentsTabProps> = ({ batches, students, onR
 
   const handleSaveStudent = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !batchId) return;
+    if (!name.trim()) return;
+
+    const assignedBatchId = batchId || batches[0]?.id || '';
 
     setSaving(true);
     await saveStudent({
@@ -55,13 +58,15 @@ export const StudentsTab: React.FC<StudentsTabProps> = ({ batches, students, onR
       name: name.trim(),
       phone: phone.trim(),
       parent_phone: parentPhone.trim(),
-      batch_id: batchId,
+      batch_id: assignedBatchId,
       join_date: joinDate,
       is_active: true,
       notes: notes.trim(),
     });
     setSaving(false);
     setShowAddModal(false);
+    setSuccessMsg(`Student "${name.trim()}" saved successfully!`);
+    setTimeout(() => setSuccessMsg(''), 3000);
     onRefresh();
   };
 
@@ -75,11 +80,19 @@ export const StudentsTab: React.FC<StudentsTabProps> = ({ batches, students, onR
   });
 
   const getBatchName = (id: string) => {
-    return batches.find((b) => b.id === id)?.name || 'Unassigned';
+    return batches.find((b) => b.id === id)?.name || 'Kathak Batch';
   };
 
   return (
     <div className="space-y-4 pb-24 max-w-md mx-auto px-4 pt-3">
+      {/* Success Notification */}
+      {successMsg && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 animate-fade-in">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+          <span>{successMsg}</span>
+        </div>
+      )}
+
       {/* Search & Add Header */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
@@ -94,10 +107,11 @@ export const StudentsTab: React.FC<StudentsTabProps> = ({ batches, students, onR
         </div>
         <button
           onClick={() => openAddModal()}
-          className="bg-rose-700 hover:bg-rose-800 text-white font-bold p-2.5 rounded-xl shadow-sm flex items-center justify-center transition-colors"
+          className="bg-rose-700 hover:bg-rose-800 text-white font-bold px-3 py-2 rounded-xl shadow-sm text-xs flex items-center gap-1 transition-colors whitespace-nowrap"
           title="Add New Student"
         >
-          <Plus className="w-5 h-5" />
+          <Plus className="w-4 h-4" />
+          <span>Add Student</span>
         </button>
       </div>
 
@@ -130,9 +144,19 @@ export const StudentsTab: React.FC<StudentsTabProps> = ({ batches, students, onR
 
       {/* Student List */}
       {filteredStudents.length === 0 ? (
-        <div className="bg-white rounded-2xl p-8 text-center text-slate-500 border border-slate-200">
-          <UserPlus className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-          <p className="text-sm font-medium">No students found.</p>
+        <div className="bg-white rounded-2xl p-8 text-center text-slate-500 border border-slate-200 space-y-3">
+          <UserPlus className="w-10 h-10 text-rose-300 mx-auto" />
+          <div>
+            <h3 className="text-sm font-bold text-slate-700">No students found</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Click the "Add Student" button above to enroll your first student!</p>
+          </div>
+          <button
+            onClick={() => openAddModal()}
+            className="bg-rose-700 hover:bg-rose-800 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm inline-flex items-center gap-1.5"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Student Now</span>
+          </button>
         </div>
       ) : (
         <div className="space-y-3">
@@ -159,7 +183,7 @@ export const StudentsTab: React.FC<StudentsTabProps> = ({ batches, students, onR
               <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs text-slate-600">
                 <div className="flex items-center gap-1.5">
                   <Phone className="w-3.5 h-3.5 text-slate-400" />
-                  <span>{student.phone || 'No direct phone'}</span>
+                  <span>{student.phone || 'No phone'}</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <Phone className="w-3.5 h-3.5 text-rose-500" />
@@ -208,7 +232,7 @@ export const StudentsTab: React.FC<StudentsTabProps> = ({ batches, students, onR
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Assign to Batch *</label>
                 <select
                   required
-                  value={batchId}
+                  value={batchId || (batches[0]?.id || '')}
                   onChange={(e) => setBatchId(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-800 focus:ring-2 focus:ring-rose-500 outline-none"
                 >
