@@ -1,0 +1,16 @@
+{
+  "short_name": "Kathak Tracker",
+  "name": "Kathak Dance Class Tracker",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#ffffff",
+  "theme_color": "#be123c",
+  "display": "standalone",
+  "orientation": "portrait"
+}
