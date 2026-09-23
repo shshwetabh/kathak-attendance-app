@@ -1,20 +1,24 @@
 -- Kathak Dance Class Database Schema for Supabase PostgreSQL
 
--- 1. Create Batches Table
+-- 1. Create Batches Table with per_class_fee (default 200)
 CREATE TABLE IF NOT EXISTS public.batches (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     name TEXT NOT NULL,
-    schedule_days TEXT NOT NULL, -- e.g. "Tue, Thu, Sat"
-    timing TEXT NOT NULL,        -- e.g. "5:00 PM - 6:30 PM"
+    schedule_days TEXT NOT NULL,
+    timing TEXT NOT NULL,
+    per_class_fee NUMERIC DEFAULT 200,
     monthly_fee NUMERIC DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
 
--- Seed Default 2 Batches (Kids Batch & Adults Batch)
-INSERT INTO public.batches (name, schedule_days, timing, monthly_fee)
+-- In case batches table already exists, ensure per_class_fee column exists
+ALTER TABLE public.batches ADD COLUMN IF NOT EXISTS per_class_fee NUMERIC DEFAULT 200;
+
+-- Seed Default 2 Batches (Kids Batch & Adults Batch) with 200/class
+INSERT INTO public.batches (name, schedule_days, timing, per_class_fee)
 VALUES 
-    ('Kids Batch', 'Tue, Thu, Sat', '5:00 PM - 6:30 PM', 2500),
-    ('Adults Batch', 'Wed, Fri, Sun', '6:30 PM - 8:00 PM', 3000)
+    ('Kids Batch', 'Tue, Thu, Sat', '5:00 PM - 6:30 PM', 200),
+    ('Adults Batch', 'Wed, Fri, Sun', '6:30 PM - 8:00 PM', 200)
 ON CONFLICT DO NOTHING;
 
 -- 2. Create Students Table
@@ -46,18 +50,18 @@ CREATE TABLE IF NOT EXISTS public.attendance (
 CREATE TABLE IF NOT EXISTS public.payments (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     student_id UUID REFERENCES public.students(id) ON DELETE CASCADE,
-    month_year TEXT NOT NULL, -- e.g. "2026-09"
+    month_year TEXT NOT NULL,
     amount_due NUMERIC DEFAULT 0,
     amount_paid NUMERIC DEFAULT 0,
     status TEXT NOT NULL CHECK (status IN ('paid', 'unpaid', 'partial')),
     payment_date DATE,
-    payment_mode TEXT, -- e.g. 'UPI', 'Cash', 'Bank Transfer'
+    payment_mode TEXT,
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
     CONSTRAINT unique_monthly_student_payment UNIQUE (student_id, month_year)
 );
 
--- Enable Row Level Security (RLS) and permit anonymous access for app usage
+-- Enable RLS Policies
 ALTER TABLE public.batches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.students ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.attendance ENABLE ROW LEVEL SECURITY;

@@ -27,21 +27,21 @@ const isValidUUID = (str?: string): boolean => {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 };
 
-// Default 2 Initial Batches: Kids & Adults
+// Default 2 Initial Batches: Kids & Adults with 200/class default
 const SEED_BATCHES: Batch[] = [
   {
     id: '11111111-1111-4111-a111-111111111111',
     name: 'Kids Batch',
     schedule_days: 'Tue, Thu, Sat',
     timing: '5:00 PM - 6:30 PM',
-    monthly_fee: 2500,
+    per_class_fee: 200,
   },
   {
     id: '22222222-2222-4222-a222-222222222222',
     name: 'Adults Batch',
     schedule_days: 'Wed, Fri, Sun',
     timing: '6:30 PM - 8:00 PM',
-    monthly_fee: 3000,
+    per_class_fee: 200,
   },
 ];
 
@@ -63,14 +63,26 @@ const initLocalStorage = () => {
 
 initLocalStorage();
 
+// Normalize batch object ensuring per_class_fee is present
+const normalizeBatch = (b: any): Batch => ({
+  id: b.id,
+  name: b.name,
+  schedule_days: b.schedule_days,
+  timing: b.timing,
+  per_class_fee: Number(b.per_class_fee || 200),
+  monthly_fee: b.monthly_fee ? Number(b.monthly_fee) : undefined,
+  created_at: b.created_at,
+});
+
 // --- BATCH API ---
 export const fetchBatches = async (): Promise<Batch[]> => {
   if (isSupabaseConfigured && supabase) {
     try {
       const { data, error } = await supabase.from('batches').select('*').order('name');
       if (!error && data && data.length > 0) {
-        localStorage.setItem('kathak_batches', JSON.stringify(data));
-        return data;
+        const normalized = data.map(normalizeBatch);
+        localStorage.setItem('kathak_batches', JSON.stringify(normalized));
+        return normalized;
       }
       if (!error && data && data.length === 0) {
         // Seed default batches into Supabase if empty
@@ -79,13 +91,14 @@ export const fetchBatches = async (): Promise<Batch[]> => {
             name: b.name,
             schedule_days: b.schedule_days,
             timing: b.timing,
-            monthly_fee: b.monthly_fee,
+            per_class_fee: b.per_class_fee,
           }))
         );
         const { data: seeded } = await supabase.from('batches').select('*').order('name');
         if (seeded && seeded.length > 0) {
-          localStorage.setItem('kathak_batches', JSON.stringify(seeded));
-          return seeded;
+          const normalized = seeded.map(normalizeBatch);
+          localStorage.setItem('kathak_batches', JSON.stringify(normalized));
+          return normalized;
         }
       }
     } catch (err) {
@@ -93,18 +106,27 @@ export const fetchBatches = async (): Promise<Batch[]> => {
     }
   }
   const local = localStorage.getItem('kathak_batches');
-  return local ? JSON.parse(local) : SEED_BATCHES;
+  const parsed = local ? JSON.parse(local) : SEED_BATCHES;
+  return parsed.map(normalizeBatch);
 };
 
 export const saveBatch = async (batch: Omit<Batch, 'id'> & { id?: string }): Promise<Batch> => {
   const newId = batch.id && isValidUUID(batch.id) ? batch.id : generateUUID();
-  const newBatch: Batch = { ...batch, id: newId };
+  const fee = Number(batch.per_class_fee || 200);
+  const newBatch: Batch = { ...batch, id: newId, per_class_fee: fee };
 
   if (isSupabaseConfigured && supabase) {
     try {
-      const payload = isValidUUID(batch.id)
-        ? { id: batch.id, name: batch.name, schedule_days: batch.schedule_days, timing: batch.timing, monthly_fee: batch.monthly_fee }
-        : { name: batch.name, schedule_days: batch.schedule_days, timing: batch.timing, monthly_fee: batch.monthly_fee };
+      const payload: any = {
+        name: batch.name,
+        schedule_days: batch.schedule_days,
+        timing: batch.timing,
+        per_class_fee: fee,
+      };
+
+      if (isValidUUID(batch.id)) {
+        payload.id = batch.id;
+      }
 
       const { data, error } = await supabase.from('batches').upsert([payload]).select().single();
       if (error) {
@@ -179,7 +201,6 @@ export const saveStudent = async (student: Omit<Student, 'id'> & { id?: string }
     }
   }
 
-  // Update local storage backup
   const local = await fetchStudents();
   const existingIndex = local.findIndex((s) => s.id === newStudent.id);
   if (existingIndex >= 0) {

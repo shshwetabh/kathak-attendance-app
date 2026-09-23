@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Download, BarChart3, Clock, Check, X, Calendar } from 'lucide-react';
+import { Plus, Edit2, Download, BarChart3, Clock, Check, X, Calendar, IndianRupee } from 'lucide-react';
 import { Batch, Student, AttendanceRecord } from '../types';
 import { saveBatch, fetchAllAttendance } from '../lib/supabase';
 
@@ -57,7 +57,7 @@ export const BatchesTab: React.FC<BatchesTabProps> = ({ batches, students, onRef
   const [selectedDays, setSelectedDays] = useState<string[]>(['Tue', 'Thu', 'Sat']);
   const [startTime, setStartTime] = useState('17:00');
   const [endTime, setEndTime] = useState('18:30');
-  const [monthlyFee, setMonthlyFee] = useState<number>(2500);
+  const [perClassFee, setPerClassFee] = useState<number>(200);
   const [saving, setSaving] = useState(false);
 
   // Attendance stats state
@@ -86,14 +86,14 @@ export const BatchesTab: React.FC<BatchesTabProps> = ({ batches, students, onRef
       setStartTime(start);
       setEndTime(end);
 
-      setMonthlyFee(batch.monthly_fee);
+      setPerClassFee(batch.per_class_fee || 200);
     } else {
       setEditingBatch(null);
       setName('');
       setSelectedDays(['Tue', 'Thu', 'Sat']);
       setStartTime('17:00');
       setEndTime('18:30');
-      setMonthlyFee(2500);
+      setPerClassFee(200);
     }
     setShowAddModal(true);
   };
@@ -122,7 +122,7 @@ export const BatchesTab: React.FC<BatchesTabProps> = ({ batches, students, onRef
       name: name.trim(),
       schedule_days: formattedScheduleDays,
       timing: formattedTiming,
-      monthly_fee: Number(monthlyFee),
+      per_class_fee: Number(perClassFee || 200),
     });
     setSaving(false);
     setShowAddModal(false);
@@ -160,7 +160,7 @@ export const BatchesTab: React.FC<BatchesTabProps> = ({ batches, students, onRef
       <div className="flex items-center justify-between">
         <div>
           <h2 className="font-bold text-slate-800 text-base">Batches & Attendance Summary</h2>
-          <p className="text-xs text-slate-500 font-medium">Manage class schedules & export data</p>
+          <p className="text-xs text-slate-500 font-medium">Manage class schedules & per-class fee rates</p>
         </div>
         <button
           onClick={() => openModal()}
@@ -202,8 +202,8 @@ export const BatchesTab: React.FC<BatchesTabProps> = ({ batches, students, onRef
                 <span className="font-semibold text-slate-600">
                   Enrolled: <strong className="text-rose-700 font-bold">{batchStudentCount} Students</strong>
                 </span>
-                <span className="font-bold text-slate-800 bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-md">
-                  ₹{batch.monthly_fee}/month
+                <span className="font-bold text-slate-800 bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-0.5 rounded-md flex items-center gap-0.5">
+                  ₹{batch.per_class_fee || 200}/class
                 </span>
               </div>
             </div>
@@ -351,20 +351,29 @@ export const BatchesTab: React.FC<BatchesTabProps> = ({ batches, students, onRef
                 </div>
 
                 <p className="text-[11px] text-slate-500 mt-1 font-medium">
-                  Result: <strong className="text-rose-700">{format12Hour(startTime)} - {format12Hour(endTime)}</strong>
+                  Timing: <strong className="text-rose-700">{format12Hour(startTime)} - {format12Hour(endTime)}</strong>
                 </p>
               </div>
 
+              {/* Per-class fee rate */}
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Monthly Fee (₹)</label>
-                <input
-                  type="number"
-                  required
-                  min="0"
-                  value={monthlyFee}
-                  onChange={(e) => setMonthlyFee(Number(e.target.value))}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-800 focus:ring-2 focus:ring-rose-500 outline-none"
-                />
+                <label className="block text-xs font-semibold text-slate-600 mb-1 flex items-center gap-1">
+                  <IndianRupee className="w-3.5 h-3.5 text-rose-600" />
+                  Per-Class Fee Rate (₹) *
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    placeholder="200"
+                    value={perClassFee}
+                    onChange={(e) => setPerClassFee(Number(e.target.value))}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-8 pr-3 py-2 text-sm font-bold text-slate-800 focus:ring-2 focus:ring-rose-500 outline-none"
+                  />
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-bold text-sm">₹</span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">Default is ₹200 per class attended.</p>
               </div>
 
               <div className="pt-2 flex justify-end gap-2 border-t border-slate-100">

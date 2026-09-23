@@ -238,7 +238,7 @@ export const StudentsTab: React.FC<StudentsTabProps> = ({ batches, students, onR
                 >
                   {batches.map((b) => (
                     <option key={b.id} value={b.id}>
-                      {b.name} (₹{b.monthly_fee}/mo)
+                      {b.name} (₹{b.per_class_fee || 200}/class)
                     </option>
                   ))}
                 </select>

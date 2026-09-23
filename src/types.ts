@@ -6,7 +6,8 @@ export interface Batch {
   name: string;
   schedule_days: string;
   timing: string;
-  monthly_fee: number;
+  per_class_fee: number; // Default 200/class
+  monthly_fee?: number; // Optional for backward compatibility
   created_at?: string;
 }
 
