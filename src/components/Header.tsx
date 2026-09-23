@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Database, Cloud, Smartphone, Download, X, Check } from 'lucide-react';
+import { Sparkles, Database, Cloud, Smartphone, Download, X, Check, Lock } from 'lucide-react';
 import { isSupabaseConfigured } from '../lib/supabase';
 
-export const Header: React.FC = () => {
+interface HeaderProps {
+  onLock?: () => void;
+}
+
+export const Header: React.FC<HeaderProps> = ({ onLock }) => {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallBanner, setShowInstallBanner] = useState<boolean>(false);
   const [showInstructionModal, setShowInstructionModal] = useState<boolean>(false);
@@ -60,7 +64,17 @@ export const Header: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            {onLock && (
+              <button
+                onClick={onLock}
+                className="p-1.5 bg-rose-950/60 hover:bg-rose-950 text-rose-200 hover:text-white rounded-xl border border-rose-700/40 text-xs font-semibold transition-colors flex items-center gap-1"
+                title="Lock Application"
+              >
+                <Lock className="w-3.5 h-3.5 text-amber-400" />
+              </button>
+            )}
+
             {!isStandalone && (
               <button
                 onClick={handleInstallClick}
@@ -68,17 +82,17 @@ export const Header: React.FC = () => {
                 title="Add Kathak App Icon to Phone Home Screen"
               >
                 <Smartphone className="w-3.5 h-3.5" />
-                <span>Install App</span>
+                <span>Install</span>
               </button>
             )}
 
             {isSupabaseConfigured ? (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
                 <Cloud className="w-3 h-3" />
                 <span>Cloud</span>
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-amber-500/20 text-amber-200 border border-amber-500/30">
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium bg-amber-500/20 text-amber-200 border border-amber-500/30">
                 <Database className="w-3 h-3" />
                 <span>Local</span>
               </span>

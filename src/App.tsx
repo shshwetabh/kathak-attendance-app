@@ -5,10 +5,15 @@ import { AttendanceTab } from './components/AttendanceTab';
 import { StudentsTab } from './components/StudentsTab';
 import { FeesTab } from './components/FeesTab';
 import { BatchesTab } from './components/BatchesTab';
+import { PasscodeLock } from './components/PasscodeLock';
 import { ActiveTab, Batch, Student } from './types';
 import { fetchBatches, fetchStudents } from './lib/supabase';
 
 export const App: React.FC = () => {
+  const [isUnlocked, setIsUnlocked] = useState<boolean>(() => {
+    return localStorage.getItem('kathak_app_unlocked') === 'true' || sessionStorage.getItem('kathak_app_unlocked') === 'true';
+  });
+
   const [activeTab, setActiveTab] = useState<ActiveTab>('attendance');
   const [batches, setBatches] = useState<Batch[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
@@ -26,12 +31,24 @@ export const App: React.FC = () => {
   };
 
   useEffect(() => {
-    loadInitialData();
-  }, []);
+    if (isUnlocked) {
+      loadInitialData();
+    }
+  }, [isUnlocked]);
+
+  const handleLock = () => {
+    localStorage.removeItem('kathak_app_unlocked');
+    sessionStorage.removeItem('kathak_app_unlocked');
+    setIsUnlocked(false);
+  };
+
+  if (!isUnlocked) {
+    return <PasscodeLock onUnlock={() => setIsUnlocked(true)} />;
+  }
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col antialiased select-none">
-      <Header />
+      <Header onLock={handleLock} />
 
       <main className="flex-1 pb-20">
         {loading ? (
