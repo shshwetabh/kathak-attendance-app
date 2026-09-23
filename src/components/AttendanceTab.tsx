@@ -10,13 +10,14 @@ import {
   BarChart3,
   CalendarCheck,
   Clock,
-  Layers,
+  Trash2,
 } from 'lucide-react';
 import { Batch, Student, AttendanceStatus, AttendanceRecord } from '../types';
 import {
   fetchAttendanceByDateAndBatch,
   fetchAllAttendance,
   saveAttendanceRecords,
+  deleteAttendanceByDateAndBatch,
 } from '../lib/supabase';
 
 interface AttendanceTabProps {
@@ -66,6 +67,7 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
   const [attendanceState, setAttendanceState] = useState<Record<string, AttendanceStatus>>({});
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
+  const [existingDailyRecordsCount, setExistingDailyRecordsCount] = useState(0);
 
   // Monthly Matrix View State
   const [selectedMonth, setSelectedMonth] = useState<string>(format(new Date(), 'yyyy-MM'));
@@ -104,6 +106,8 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
     const loadDailyAttendance = async () => {
       if (!selectedBatchId) return;
       const records = await fetchAttendanceByDateAndBatch(selectedDate, selectedBatchId);
+      setExistingDailyRecordsCount(records.length);
+
       const stateMap: Record<string, AttendanceStatus> = {};
       records.forEach((r) => {
         stateMap[r.student_id] = r.status;
@@ -117,7 +121,7 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
       setAttendanceState(stateMap);
     };
     loadDailyAttendance();
-  }, [selectedDate, selectedBatchId, students]);
+  }, [selectedDate, selectedBatchId, students, allAttendance]);
 
   const handleStatusChange = (studentId: string, status: AttendanceStatus) => {
     setAttendanceState((prev) => ({
@@ -151,6 +155,28 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
     setTimeout(() => setSuccessMsg(''), 3000);
   };
 
+  const handleDeleteDailyAttendance = async () => {
+    const currentBatchName = batches.find((b) => b.id === selectedBatchId)?.name || 'Selected Batch';
+    if (!window.confirm(`Are you sure you want to delete all attendance records for ${selectedDate} (${currentBatchName})?`)) {
+      return;
+    }
+
+    setSaving(true);
+    await deleteAttendanceByDateAndBatch(selectedDate, selectedBatchId);
+    await reloadAllAttendance();
+    setSaving(false);
+    setSuccessMsg('Attendance records for this date cleared.');
+    setTimeout(() => setSuccessMsg(''), 3000);
+  };
+
+  const handleDeleteSpecificDateBatch = async (dateStr: string, batchId: string, batchName: string) => {
+    if (!window.confirm(`Delete attendance record for ${dateStr} (${batchName})?`)) {
+      return;
+    }
+    await deleteAttendanceByDateAndBatch(dateStr, batchId);
+    await reloadAllAttendance();
+  };
+
   const getStatusBadgeClass = (status: AttendanceStatus, current: AttendanceStatus) => {
     const isSelected = status === current;
     switch (status) {
@@ -180,7 +206,27 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
     return inMonth && inBatch;
   });
 
+  // Unique conducted dates across filtered month records
   const conductedDates = Array.from(new Set(monthRecords.map((r) => r.attendance_date))).sort();
+
+  // Distinct conducted sessions for deletion management
+  const conductedSessions: { date: string; batchId: string; batchName: string; studentCount: number }[] = [];
+  const sessionKeys = new Set<string>();
+
+  monthRecords.forEach((r) => {
+    const key = `${r.attendance_date}_${r.batch_id}`;
+    if (!sessionKeys.has(key)) {
+      sessionKeys.add(key);
+      const bName = batches.find((b) => b.id === r.batch_id)?.name || 'Batch';
+      const count = monthRecords.filter((m) => m.attendance_date === r.attendance_date && m.batch_id === r.batch_id).length;
+      conductedSessions.push({
+        date: r.attendance_date,
+        batchId: r.batch_id,
+        batchName: bName,
+        studentCount: count,
+      });
+    }
+  });
 
   const monthStudents = students.filter((s) => {
     if (!s.is_active) return false;
@@ -190,19 +236,29 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
     return true;
   });
 
-  const getStudentMonthlyRecord = (studentId: string) => {
-    const studentMonthRecords = monthRecords.filter((r) => r.student_id === studentId);
+  // Calculate student monthly record accurately based on dates conducted for THAT student's batch
+  const getStudentMonthlyRecord = (student: Student) => {
+    // Conducted dates specifically for this student's batch
+    const studentBatchConductedDates = Array.from(
+      new Set(
+        allAttendance
+          .filter((r) => r.batch_id === student.batch_id && r.attendance_date.startsWith(selectedMonth))
+          .map((r) => r.attendance_date)
+      )
+    ).sort();
+
+    const studentMonthRecords = monthRecords.filter((r) => r.student_id === student.id);
     const dateStatusMap: Record<string, AttendanceStatus> = {};
     studentMonthRecords.forEach((r) => {
       dateStatusMap[r.attendance_date] = r.status;
     });
 
-    const attendedCount = conductedDates.filter((d) => {
+    const attendedCount = studentBatchConductedDates.filter((d) => {
       const st = dateStatusMap[d];
       return st === 'present' || st === 'late';
     }).length;
 
-    const totalHeld = conductedDates.length;
+    const totalHeld = studentBatchConductedDates.length;
     const rate = totalHeld > 0 ? Math.round((attendedCount / totalHeld) * 100) : 0;
 
     return {
@@ -210,6 +266,7 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
       attendedCount,
       totalHeld,
       rate,
+      studentBatchConductedDates,
     };
   };
 
@@ -222,15 +279,34 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
     return true;
   });
 
-  const calculateStudentDrilldownStats = (studentId: string) => {
-    let studentRecords = allAttendance.filter((r) => r.student_id === studentId);
+  const calculateStudentDrilldownStats = (student: Student) => {
     if (statsTimeframe === 'month') {
-      studentRecords = studentRecords.filter((r) => r.attendance_date.startsWith(statsMonth));
+      // Conducted dates for this student's batch in that month
+      const batchConductedDates = Array.from(
+        new Set(
+          allAttendance
+            .filter((r) => r.batch_id === student.batch_id && r.attendance_date.startsWith(statsMonth))
+            .map((r) => r.attendance_date)
+        )
+      );
+
+      const studentRecords = allAttendance.filter(
+        (r) => r.student_id === student.id && r.attendance_date.startsWith(statsMonth)
+      );
+
+      const presentCount = studentRecords.filter((r) => r.status === 'present' || r.status === 'late').length;
+      const totalHeld = batchConductedDates.length;
+      const pct = totalHeld > 0 ? Math.round((presentCount / totalHeld) * 100) : 0;
+
+      return { total: totalHeld, present: presentCount, pct, isBatchEmpty: totalHeld === 0 };
+    } else {
+      // All time
+      const studentRecords = allAttendance.filter((r) => r.student_id === student.id);
+      if (studentRecords.length === 0) return { total: 0, present: 0, pct: 0, isBatchEmpty: true };
+      const presentCount = studentRecords.filter((r) => r.status === 'present' || r.status === 'late').length;
+      const pct = Math.round((presentCount / studentRecords.length) * 100);
+      return { total: studentRecords.length, present: presentCount, pct, isBatchEmpty: false };
     }
-    if (studentRecords.length === 0) return { total: 0, present: 0, pct: 0 };
-    const presentCount = studentRecords.filter((r) => r.status === 'present' || r.status === 'late').length;
-    const pct = Math.round((presentCount / studentRecords.length) * 100);
-    return { total: studentRecords.length, present: presentCount, pct };
   };
 
   return (
@@ -317,13 +393,25 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
               <span className="text-xs font-medium text-slate-500">
                 Total Students: <strong className="text-slate-800">{dailyBatchStudents.length}</strong>
               </span>
-              <button
-                onClick={handleMarkAllPresent}
-                className="inline-flex items-center gap-1 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded-lg transition-colors"
-              >
-                <UserCheck className="w-3.5 h-3.5" />
-                Mark All Present
-              </button>
+              <div className="flex items-center gap-2">
+                {existingDailyRecordsCount > 0 && (
+                  <button
+                    onClick={handleDeleteDailyAttendance}
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded-lg transition-colors"
+                    title="Delete all attendance entries for this date & batch"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Clear Date</span>
+                  </button>
+                )}
+                <button
+                  onClick={handleMarkAllPresent}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded-lg transition-colors"
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  Mark All Present
+                </button>
+              </div>
             </div>
           </div>
 
@@ -494,14 +582,26 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-xs">
                       {monthStudents.map((student) => {
-                        const rec = getStudentMonthlyRecord(student.id);
+                        const rec = getStudentMonthlyRecord(student);
                         return (
                           <tr key={student.id} className="hover:bg-slate-50/70 transition-colors">
                             <td className="py-2.5 px-3 font-bold text-slate-800 sticky left-0 bg-white z-10 shadow-[2px_0_5px_rgba(0,0,0,0.03)] whitespace-nowrap">
                               {student.name}
                             </td>
                             {conductedDates.map((dateStr) => {
+                              const isBatchDate = rec.studentBatchConductedDates.includes(dateStr);
                               const status = rec.dateStatusMap[dateStr];
+
+                              if (!isBatchDate) {
+                                return (
+                                  <td key={dateStr} className="py-2 px-1 text-center" title="No class for this student's batch">
+                                    <span className="inline-flex items-center justify-center w-6 h-6 text-slate-300 font-semibold">
+                                      —
+                                    </span>
+                                  </td>
+                                );
+                              }
+
                               return (
                                 <td key={dateStr} className="py-2 px-1 text-center">
                                   {status === 'present' ? (
@@ -529,20 +629,24 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
                               );
                             })}
                             <td className="py-2.5 px-3 font-bold text-slate-700 text-center whitespace-nowrap">
-                              {rec.attendedCount}/{rec.totalHeld}
+                              {rec.totalHeld === 0 ? '0/0' : `${rec.attendedCount}/${rec.totalHeld}`}
                             </td>
                             <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                              <span
-                                className={`px-2 py-0.5 rounded-md font-extrabold text-[11px] ${
-                                  rec.rate >= 80
-                                    ? 'bg-emerald-50 text-emerald-700'
-                                    : rec.rate >= 50
-                                    ? 'bg-amber-50 text-amber-700'
-                                    : 'bg-rose-50 text-rose-700'
-                                }`}
-                              >
-                                {rec.rate}%
-                              </span>
+                              {rec.totalHeld === 0 ? (
+                                <span className="text-slate-400 font-medium text-[11px]">N/A</span>
+                              ) : (
+                                <span
+                                  className={`px-2 py-0.5 rounded-md font-extrabold text-[11px] ${
+                                    rec.rate >= 80
+                                      ? 'bg-emerald-50 text-emerald-700'
+                                      : rec.rate >= 50
+                                      ? 'bg-amber-50 text-amber-700'
+                                      : 'bg-rose-50 text-rose-700'
+                                  }`}
+                                >
+                                  {rec.rate}%
+                                </span>
+                              )}
                             </td>
                           </tr>
                         );
@@ -578,7 +682,48 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
                   </span>
                   <span>Excused</span>
                 </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-400 font-bold text-sm">—</span>
+                  <span>No Batch Class</span>
+                </div>
               </div>
+
+              {/* Manage / Delete Erroneous Class Sessions */}
+              {conductedSessions.length > 0 && (
+                <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                  <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide">
+                    Manage Conducted Class Sessions
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    If an attendance session was marked by mistake, you can delete it below:
+                  </p>
+                  <div className="space-y-1.5 pt-1">
+                    {conductedSessions.map((session) => (
+                      <div
+                        key={`${session.date}_${session.batchId}`}
+                        className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100 text-xs"
+                      >
+                        <div>
+                          <span className="font-bold text-slate-800">{session.date}</span>
+                          <span className="text-slate-500 font-medium ml-2">
+                            {session.batchName} ({session.studentCount} entries)
+                          </span>
+                        </div>
+                        <button
+                          onClick={() =>
+                            handleDeleteSpecificDateBatch(session.date, session.batchId, session.batchName)
+                          }
+                          className="text-rose-600 hover:text-rose-800 hover:bg-rose-50 p-1 rounded-lg transition-colors flex items-center gap-1 font-semibold text-[11px]"
+                          title="Delete this class session"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Delete</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -683,13 +828,13 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
                 <p className="text-xs text-slate-400 text-center py-4">No active students in this filter.</p>
               ) : (
                 statsStudents.map((student) => {
-                  const stats = calculateStudentDrilldownStats(student.id);
+                  const stats = calculateStudentDrilldownStats(student);
                   return (
                     <div key={student.id} className="space-y-1.5">
                       <div className="flex justify-between text-xs font-semibold text-slate-700">
                         <span className="font-bold text-slate-800">{student.name}</span>
-                        {stats.total === 0 ? (
-                          <span className="text-[11px] text-slate-400 font-medium">No classes recorded</span>
+                        {stats.isBatchEmpty ? (
+                          <span className="text-[11px] text-slate-400 font-medium">No classes for batch</span>
                         ) : (
                           <span className="font-semibold text-slate-600">
                             <strong className="text-rose-700 font-bold">{stats.pct}%</strong> ({stats.present}/{stats.total} classes)
@@ -699,7 +844,7 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
                       <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
                         <div
                           className={`h-2.5 rounded-full transition-all duration-300 ${
-                            stats.total === 0
+                            stats.isBatchEmpty
                               ? 'bg-slate-200'
                               : stats.pct >= 85
                               ? 'bg-emerald-500'
@@ -707,7 +852,7 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({ batches, students 
                               ? 'bg-amber-500'
                               : 'bg-rose-500'
                           }`}
-                          style={{ width: `${stats.total === 0 ? 0 : Math.max(stats.pct, 5)}%` }}
+                          style={{ width: `${stats.isBatchEmpty ? 0 : Math.max(stats.pct, 5)}%` }}
                         />
                       </div>
                     </div>

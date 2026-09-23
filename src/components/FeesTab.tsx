@@ -14,9 +14,16 @@ import {
   Layers,
   Sparkles,
   Info,
+  Trash2,
 } from 'lucide-react';
 import { Batch, Student, PaymentRecord, PaymentStatus, AttendanceRecord } from '../types';
-import { fetchPaymentsByMonth, fetchAllPayments, fetchAllAttendance, savePaymentRecord } from '../lib/supabase';
+import {
+  fetchPaymentsByMonth,
+  fetchAllPayments,
+  fetchAllAttendance,
+  savePaymentRecord,
+  deletePaymentRecord,
+} from '../lib/supabase';
 
 interface FeesTabProps {
   batches: Batch[];
@@ -119,9 +126,10 @@ export const FeesTab: React.FC<FeesTabProps> = ({ batches, students }) => {
     const feeDue = studentAttended * perClassFee;
 
     // Amount paid for this month
-    const payRecord = monthYear === selectedMonth
-      ? monthPayments[student.id]
-      : allPayments.find((p) => p.student_id === student.id && p.month_year === monthYear);
+    const payRecord =
+      monthYear === selectedMonth
+        ? monthPayments[student.id]
+        : allPayments.find((p) => p.student_id === student.id && p.month_year === monthYear);
 
     const paidAmt = payRecord ? payRecord.amount_paid : 0;
     const pending = Math.max(0, feeDue - paidAmt);
@@ -194,7 +202,13 @@ export const FeesTab: React.FC<FeesTabProps> = ({ batches, students }) => {
     setActiveModalStudent(student);
     setModalStudentId(student.id);
     setModalMonthYear(targetMonth);
-    setAmountPaid(stats.pending > 0 ? stats.pending : stats.feeDue > 0 ? stats.feeDue : (getStudentBatch(student.batch_id)?.per_class_fee || 200) * 8);
+    setAmountPaid(
+      stats.pending > 0
+        ? stats.pending
+        : stats.feeDue > 0
+        ? stats.feeDue
+        : (getStudentBatch(student.batch_id)?.per_class_fee || 200) * 8
+    );
     setPaymentMode(stats.payRecord?.payment_mode || 'UPI');
     setPaymentDate(stats.payRecord?.payment_date || format(new Date(), 'yyyy-MM-dd'));
     setNotes(stats.payRecord?.notes || '');
@@ -223,7 +237,8 @@ export const FeesTab: React.FC<FeesTabProps> = ({ batches, students }) => {
     if (!targetStudent) return;
 
     const stats = calculateStudentMonthFee(targetStudent, modalMonthYear);
-    const feeDue = stats.feeDue > 0 ? stats.feeDue : (getStudentBatch(targetStudent.batch_id)?.per_class_fee || 200);
+    const feeDue =
+      stats.feeDue > 0 ? stats.feeDue : getStudentBatch(targetStudent.batch_id)?.per_class_fee || 200;
     const status: PaymentStatus =
       amountPaid >= feeDue ? 'paid' : amountPaid > 0 ? 'partial' : 'unpaid';
 
@@ -245,7 +260,25 @@ export const FeesTab: React.FC<FeesTabProps> = ({ batches, students }) => {
     setActiveModalStudent(null);
   };
 
-  const sendWhatsAppReminder = (student: Student, dueAmount: number, monthStr: string, attendedCount: number, perClassRate: number) => {
+  const handleDeletePayment = async (studentId: string, monthStr: string, studentName: string) => {
+    if (!window.confirm(`Delete recorded payment for ${studentName} (${monthStr})?`)) {
+      return;
+    }
+    setSaving(true);
+    await deletePaymentRecord(studentId, monthStr);
+    await loadData();
+    setSaving(false);
+    setShowPaymentModal(false);
+    setActiveModalStudent(null);
+  };
+
+  const sendWhatsAppReminder = (
+    student: Student,
+    dueAmount: number,
+    monthStr: string,
+    attendedCount: number,
+    perClassRate: number
+  ) => {
     const targetPhone = student.parent_phone || student.phone;
     if (!targetPhone) {
       alert('No phone number listed for this student.');
@@ -324,7 +357,8 @@ export const FeesTab: React.FC<FeesTabProps> = ({ batches, students }) => {
       <div className="bg-rose-50 border border-rose-200/60 p-2.5 rounded-2xl flex items-start gap-2 text-[11px] text-rose-900 font-medium">
         <Info className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
         <span>
-          Fees are calculated at <strong>per-class rate × classes attended</strong> starting from <strong>Sep '26</strong> (all pre-Sep fees settled).
+          Fees are calculated at <strong>per-class rate × classes attended</strong> starting from{' '}
+          <strong>Sep '26</strong> (all pre-Sep fees settled).
         </span>
       </div>
 
@@ -533,9 +567,28 @@ export const FeesTab: React.FC<FeesTabProps> = ({ batches, students }) => {
                     </span>
 
                     <div className="flex items-center gap-1.5">
+                      {stats.amountPaid > 0 && (
+                        <button
+                          onClick={() =>
+                            handleDeletePayment(student.id, selectedMonth, student.name)
+                          }
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                          title="Delete recorded payment"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       {stats.pending > 0 && (
                         <button
-                          onClick={() => sendWhatsAppReminder(student, stats.pending, selectedMonth, stats.classesAttended, stats.perClassFee)}
+                          onClick={() =>
+                            sendWhatsAppReminder(
+                              student,
+                              stats.pending,
+                              selectedMonth,
+                              stats.classesAttended,
+                              stats.perClassFee
+                            )
+                          }
                           className="p-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg text-xs font-semibold border border-emerald-200 transition-colors flex items-center gap-1"
                           title="Send WhatsApp Reminder"
                         >
@@ -546,7 +599,7 @@ export const FeesTab: React.FC<FeesTabProps> = ({ batches, students }) => {
                         onClick={() => openModalForStudent(student, selectedMonth)}
                         className="px-2.5 py-1 bg-rose-700 hover:bg-rose-800 text-white rounded-lg text-xs font-bold shadow-sm transition-colors"
                       >
-                        Record Payment
+                        {stats.amountPaid > 0 ? 'Edit Payment' : 'Record Payment'}
                       </button>
                     </div>
                   </div>
@@ -648,7 +701,13 @@ export const FeesTab: React.FC<FeesTabProps> = ({ batches, students }) => {
                     if (stu) {
                       setActiveModalStudent(stu);
                       const stats = calculateStudentMonthFee(stu, modalMonthYear);
-                      setAmountPaid(stats.pending > 0 ? stats.pending : stats.feeDue > 0 ? stats.feeDue : (getStudentBatch(stu.batch_id)?.per_class_fee || 200) * 8);
+                      setAmountPaid(
+                        stats.pending > 0
+                          ? stats.pending
+                          : stats.feeDue > 0
+                          ? stats.feeDue
+                          : (getStudentBatch(stu.batch_id)?.per_class_fee || 200) * 8
+                      );
                     }
                   }}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-rose-500 outline-none"
@@ -676,7 +735,13 @@ export const FeesTab: React.FC<FeesTabProps> = ({ batches, students }) => {
                     const targetStudent = activeModalStudent || students.find((s) => s.id === modalStudentId);
                     if (targetStudent) {
                       const stats = calculateStudentMonthFee(targetStudent, e.target.value);
-                      setAmountPaid(stats.pending > 0 ? stats.pending : stats.feeDue > 0 ? stats.feeDue : (getStudentBatch(targetStudent.batch_id)?.per_class_fee || 200) * 8);
+                      setAmountPaid(
+                        stats.pending > 0
+                          ? stats.pending
+                          : stats.feeDue > 0
+                          ? stats.feeDue
+                          : (getStudentBatch(targetStudent.batch_id)?.per_class_fee || 200) * 8
+                      );
                     }
                   }}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold text-slate-800 focus:ring-2 focus:ring-rose-500 outline-none"
@@ -731,22 +796,40 @@ export const FeesTab: React.FC<FeesTabProps> = ({ batches, students }) => {
                 />
               </div>
 
-              <div className="pt-2 flex justify-end gap-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setShowPaymentModal(false)}
-                  className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-100"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving || !modalStudentId}
-                  className="px-5 py-2 bg-rose-700 hover:bg-rose-800 text-white rounded-xl text-sm font-bold shadow-md shadow-rose-700/20 flex items-center gap-1.5 disabled:opacity-50"
-                >
-                  <Check className="w-4 h-4" />
-                  <span>{saving ? 'Saving...' : 'Save Payment'}</span>
-                </button>
+              <div className="pt-2 flex items-center justify-between gap-2 border-t border-slate-100">
+                {modalStudentId && (monthPayments[modalStudentId] || allPayments.some(p => p.student_id === modalStudentId && p.month_year === modalMonthYear)) ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const stu = students.find((s) => s.id === modalStudentId);
+                      if (stu) {
+                        handleDeletePayment(stu.id, modalMonthYear, stu.name);
+                      }
+                    }}
+                    className="px-3 py-2 text-rose-600 hover:bg-rose-50 rounded-xl text-xs font-bold transition-colors flex items-center gap-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete</span>
+                  </button>
+                ) : <div />}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowPaymentModal(false)}
+                    className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-100"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={saving || !modalStudentId}
+                    className="px-5 py-2 bg-rose-700 hover:bg-rose-800 text-white rounded-xl text-sm font-bold shadow-md shadow-rose-700/20 flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>{saving ? 'Saving...' : 'Save Payment'}</span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>

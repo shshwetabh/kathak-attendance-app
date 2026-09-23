@@ -373,3 +373,73 @@ export const savePaymentRecord = async (payment: Omit<PaymentRecord, 'id'> & { i
   localStorage.setItem('kathak_payments', JSON.stringify(existing));
   return record;
 };
+
+export const deleteAttendanceByDateAndBatch = async (dateStr: string, batchId: string): Promise<void> => {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      let query = supabase.from('attendance').delete().eq('attendance_date', dateStr);
+      if (isValidUUID(batchId)) {
+        query = query.eq('batch_id', batchId);
+      }
+      await query;
+    } catch (err) {
+      console.error('Supabase deleteAttendanceByDateAndBatch error:', err);
+    }
+  }
+
+  const local = localStorage.getItem('kathak_attendance');
+  if (local) {
+    const records: AttendanceRecord[] = JSON.parse(local);
+    const updated = records.filter(
+      (r) => !(r.attendance_date === dateStr && (!batchId || r.batch_id === batchId))
+    );
+    localStorage.setItem('kathak_attendance', JSON.stringify(updated));
+  }
+};
+
+export const deleteAttendanceRecord = async (dateStr: string, studentId: string): Promise<void> => {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      await supabase
+        .from('attendance')
+        .delete()
+        .eq('attendance_date', dateStr)
+        .eq('student_id', studentId);
+    } catch (err) {
+      console.error('Supabase deleteAttendanceRecord error:', err);
+    }
+  }
+
+  const local = localStorage.getItem('kathak_attendance');
+  if (local) {
+    const records: AttendanceRecord[] = JSON.parse(local);
+    const updated = records.filter(
+      (r) => !(r.attendance_date === dateStr && r.student_id === studentId)
+    );
+    localStorage.setItem('kathak_attendance', JSON.stringify(updated));
+  }
+};
+
+export const deletePaymentRecord = async (studentId: string, monthYear: string): Promise<void> => {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      await supabase
+        .from('payments')
+        .delete()
+        .eq('student_id', studentId)
+        .eq('month_year', monthYear);
+    } catch (err) {
+      console.error('Supabase deletePaymentRecord error:', err);
+    }
+  }
+
+  const local = localStorage.getItem('kathak_payments');
+  if (local) {
+    const records: PaymentRecord[] = JSON.parse(local);
+    const updated = records.filter(
+      (p) => !(p.student_id === studentId && p.month_year === monthYear)
+    );
+    localStorage.setItem('kathak_payments', JSON.stringify(updated));
+  }
+};
+

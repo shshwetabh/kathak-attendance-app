@@ -81,7 +81,7 @@ export const PasscodeLock: React.FC<PasscodeLockProps> = ({ onUnlock }) => {
             {error}
           </p>
         ) : (
-          <p className="text-[11px] text-slate-400">Default PIN: <strong className="text-amber-300">2026</strong></p>
+          <p className="text-[11px] text-slate-500 font-medium">4-digit passcode protected</p>
         )}
       </div>
 
