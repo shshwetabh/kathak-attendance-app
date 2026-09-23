@@ -12,7 +12,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
     { id: 'attendance' as ActiveTab, label: 'Attendance', icon: CalendarCheck },
     { id: 'students' as ActiveTab, label: 'Students', icon: Users },
     { id: 'fees' as ActiveTab, label: 'Fees', icon: IndianRupee },
-    { id: 'batches' as ActiveTab, label: 'Batches & Stats', icon: Layers },
+    { id: 'batches' as ActiveTab, label: 'Batches', icon: Layers },
   ];
 
   return (

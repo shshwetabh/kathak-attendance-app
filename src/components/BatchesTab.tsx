@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Download, BarChart3, Clock, Check, X, Calendar, IndianRupee } from 'lucide-react';
+import React, { useState } from 'react';
+import { Plus, Edit2, Download, Clock, Check, X, Calendar, IndianRupee } from 'lucide-react';
 import { Batch, Student, AttendanceRecord } from '../types';
 import { saveBatch, fetchAllAttendance } from '../lib/supabase';
 
@@ -60,17 +60,6 @@ export const BatchesTab: React.FC<BatchesTabProps> = ({ batches, students, onRef
   const [perClassFee, setPerClassFee] = useState<number>(200);
   const [saving, setSaving] = useState(false);
 
-  // Attendance stats state
-  const [allAttendance, setAllAttendance] = useState<AttendanceRecord[]>([]);
-
-  useEffect(() => {
-    const loadStats = async () => {
-      const records = await fetchAllAttendance();
-      setAllAttendance(records);
-    };
-    loadStats();
-  }, []);
-
   const openModal = (batch?: Batch) => {
     if (batch) {
       setEditingBatch(batch);
@@ -129,7 +118,8 @@ export const BatchesTab: React.FC<BatchesTabProps> = ({ batches, students, onRef
     onRefresh();
   };
 
-  const exportJSONBackup = () => {
+  const exportJSONBackup = async () => {
+    const allAttendance = await fetchAllAttendance();
     const backupData = {
       batches,
       students,
@@ -145,21 +135,12 @@ export const BatchesTab: React.FC<BatchesTabProps> = ({ batches, students, onRef
     downloadAnchor.remove();
   };
 
-  // Student Attendance Statistics Calculation
-  const calculateStudentStats = (studentId: string) => {
-    const studentRecords = allAttendance.filter((r) => r.student_id === studentId);
-    if (studentRecords.length === 0) return { total: 0, present: 0, pct: 0 };
-    const presentCount = studentRecords.filter((r) => r.status === 'present' || r.status === 'late').length;
-    const pct = Math.round((presentCount / studentRecords.length) * 100);
-    return { total: studentRecords.length, present: presentCount, pct };
-  };
-
   return (
     <div className="space-y-5 pb-24 max-w-md mx-auto px-4 pt-3">
       {/* Header & New Batch Action */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-bold text-slate-800 text-base">Batches & Attendance Summary</h2>
+          <h2 className="font-bold text-slate-800 text-base">Batches & Schedules</h2>
           <p className="text-xs text-slate-500 font-medium">Manage class schedules & per-class fee rates</p>
         </div>
         <button
@@ -209,42 +190,6 @@ export const BatchesTab: React.FC<BatchesTabProps> = ({ batches, students, onRef
             </div>
           );
         })}
-      </div>
-
-      {/* Student Attendance Rate Performance */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-        <h3 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
-          <BarChart3 className="w-4 h-4 text-rose-600" />
-          Overall Attendance Rate Summary
-        </h3>
-
-        <div className="space-y-2">
-          {students.map((student) => {
-            const stats = calculateStudentStats(student.id);
-            return (
-              <div key={student.id} className="space-y-1">
-                <div className="flex justify-between text-xs font-semibold text-slate-700">
-                  <span>{student.name}</span>
-                  <span>
-                    {stats.pct}% ({stats.present}/{stats.total} classes)
-                  </span>
-                </div>
-                <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                  <div
-                    className={`h-2 rounded-full transition-all duration-300 ${
-                      stats.pct >= 85
-                        ? 'bg-emerald-500'
-                        : stats.pct >= 60
-                        ? 'bg-amber-500'
-                        : 'bg-rose-500'
-                    }`}
-                    style={{ width: `${Math.max(stats.pct, 5)}%` }}
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </div>
       </div>
 
       {/* Backup & Export Bar */}
